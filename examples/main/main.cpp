@@ -929,15 +929,16 @@ int main(int argc, char ** argv) {
     std::vector<llama_token> llama2_embd_inp;
     std::vector<llama_token> llama2_embd;
     std::string llama2_prompt = output_ss.str();
+//    std::ostringstream output_ss;
     {
         //std::cout << "output_ss.str(): " << output_ss.str() << std::endl;
         std::cout << "----------------------------------" << std::endl;
         //std::cout << "input_ss.str(): " << input_ss.str() << std::endl;
         //std::cout << "input_ss2.str(): " << input_ss2.str() << std::endl;
         llama_kv_cache_clear(ctx);
-        gpt_sampler_reset(smpl);
+        common_sampler_reset(smpl);
         auto prompt = chat_add_and_format(model, chat_msgs, "system", llama2_prompt);
-        llama2_embd_inp = ::llama_tokenize(ctx, prompt, true, true);
+        llama2_embd_inp = ::common_tokenize(ctx, prompt, true, true);
 
         LOG_DBG("tokenize the prompt\n");
 
@@ -971,9 +972,9 @@ int main(int argc, char ** argv) {
             llama2_embd.clear();
 
             if ((int) llama2_embd_inp.size() <= n_consumed && !is_interacting) {
-                const llama_token id = gpt_sampler_sample(smpl, ctx, -1);
+                const llama_token id = common_sampler_sample(smpl, ctx, -1);
 
-                gpt_sampler_accept(smpl, id, /* accept_grammar= */ true);
+                common_sampler_accept(smpl, id, /* accept_grammar= */ true);
                 //smpl->prev.clear();
                 //LOG("last: %s\n", string_from(gpt_sampler_get_vector(smpl)).c_str());
                 //LOG("last: %s\n", string_from(ctx, smpl->prev.to_vector()).c_str());
@@ -985,11 +986,11 @@ int main(int argc, char ** argv) {
                 LOG("llama2_embd_inp.size(): %d, n_consumed: %d\n", (int) llama2_embd_inp.size(), n_consumed);
                 while ((int) llama2_embd_inp.size() > n_consumed) {
                     llama2_embd.push_back(llama2_embd_inp[n_consumed]);
-                    const std::string token_str2 = llama_token_to_piece(ctx, llama2_embd_inp[n_consumed], params.special);
-                    input_ss2 << token_str2;
+                    const std::string token_str2 = common_token_to_piece(ctx, llama2_embd_inp[n_consumed], params.special);
+                    //input_ss2 << token_str2;
                     // push the prompt in the sampling context in order to apply repetition penalties later
                     // for the prompt, we don't apply grammar rules
-                    gpt_sampler_accept(smpl, llama2_embd_inp[n_consumed], /* accept_grammar= */ false);
+                    common_sampler_accept(smpl, llama2_embd_inp[n_consumed], /* accept_grammar= */ false);
 
                     ++n_consumed;
                     if ((int) llama2_embd.size() >= params.n_batch) {
@@ -1000,7 +1001,7 @@ int main(int argc, char ** argv) {
             // display text
             if (input_echo && display) {
                 for (auto id : llama2_embd) {
-                    const std::string token_str = llama_token_to_piece(ctx, id, params.special);
+                    const std::string token_str = common_token_to_piece(ctx, id, params.special);
 
                     // nigel Console/Stream Output
                     LOG("%s", token_str.c_str());
@@ -1009,11 +1010,11 @@ int main(int argc, char ** argv) {
                     if (llama2_embd.size() > 1) {
                         // Incoming Requested Tokens
                         input_tokens.push_back(id);
-                        input_ss << llama_token_to_piece(ctx, id, params.special);
+                        //input_ss << common_token_to_piece(ctx, id, params.special);
                     } else {
                         // Outgoing Generated Tokens
                         output_tokens.push_back(id);
-                        output_ss << token_str;
+                        //output_ss << token_str;
                     }
                 }
             }
