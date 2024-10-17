@@ -923,6 +923,107 @@ int main(int argc, char ** argv) {
         LOG("\n%s: saving final output to session file '%s'\n", __func__, path_session.c_str());
         llama_state_save_file(ctx, path_session.c_str(), session_tokens.data(), session_tokens.size());
     }
+// second
+    std::cout << "" << std::endl;
+    std::cout << "model 1 : " << output_ss.str() << std::endl;
+    std::vector<llama_token> llama2_embd_inp;
+    std::vector<llama_token> llama2_embd;
+    std::string llama2_prompt = output_ss.str();
+    {
+        //std::cout << "output_ss.str(): " << output_ss.str() << std::endl;
+        std::cout << "----------------------------------" << std::endl;
+        //std::cout << "input_ss.str(): " << input_ss.str() << std::endl;
+        //std::cout << "input_ss2.str(): " << input_ss2.str() << std::endl;
+        llama_kv_cache_clear(ctx);
+        gpt_sampler_reset(smpl);
+        auto prompt = chat_add_and_format(model, chat_msgs, "system", llama2_prompt);
+        llama2_embd_inp = ::llama_tokenize(ctx, prompt, true, true);
+
+        LOG_DBG("tokenize the prompt\n");
+
+        n_remain = -1;
+        while (n_remain != 0)
+        {
+            if (!llama2_embd.empty())
+            {
+                for (int i = 0; i < (int) llama2_embd.size(); i += params.n_batch) {
+                    int n_eval = (int) llama2_embd.size() - i;
+                    if (n_eval > params.n_batch) {
+                        n_eval = params.n_batch;
+                    }
+                    // nigel
+                    //LOG("eval: %s\n", string_from(ctx, llama2_embd).c_str());
+
+                    if (llama_decode(ctx, llama_batch_get_one(&llama2_embd[i], n_eval, n_past, 0))) {
+                        LOG_ERR("%s : failed to eval\n", __func__);
+                        return 1;
+                    }
+
+                    n_past += n_eval;
+
+                    //LOG("n_past = %d\n", n_past);
+                    // Display total tokens alongside total time
+                    if (params.n_print > 0 && n_past % params.n_print == 0) {
+                        LOG_DBG("\n\033[31mTokens consumed so far = %d / %d \033[0m\n", n_past, n_ctx);
+                    }
+                }
+            }
+            llama2_embd.clear();
+
+            if ((int) llama2_embd_inp.size() <= n_consumed && !is_interacting) {
+                const llama_token id = gpt_sampler_sample(smpl, ctx, -1);
+
+                gpt_sampler_accept(smpl, id, /* accept_grammar= */ true);
+                //smpl->prev.clear();
+                //LOG("last: %s\n", string_from(gpt_sampler_get_vector(smpl)).c_str());
+                //LOG("last: %s\n", string_from(ctx, smpl->prev.to_vector()).c_str());
+                llama2_embd.push_back(id);
+                --n_remain;
+                //printf("n_remain: %d\n", n_remain);
+            } else {
+                // some user input remains from prompt or interaction, forward it to processing
+                LOG("llama2_embd_inp.size(): %d, n_consumed: %d\n", (int) llama2_embd_inp.size(), n_consumed);
+                while ((int) llama2_embd_inp.size() > n_consumed) {
+                    llama2_embd.push_back(llama2_embd_inp[n_consumed]);
+                    const std::string token_str2 = llama_token_to_piece(ctx, llama2_embd_inp[n_consumed], params.special);
+                    input_ss2 << token_str2;
+                    // push the prompt in the sampling context in order to apply repetition penalties later
+                    // for the prompt, we don't apply grammar rules
+                    gpt_sampler_accept(smpl, llama2_embd_inp[n_consumed], /* accept_grammar= */ false);
+
+                    ++n_consumed;
+                    if ((int) llama2_embd.size() >= params.n_batch) {
+                        break;
+                    }
+                }
+            }
+            // display text
+            if (input_echo && display) {
+                for (auto id : llama2_embd) {
+                    const std::string token_str = llama_token_to_piece(ctx, id, params.special);
+
+                    // nigel Console/Stream Output
+                    LOG("%s", token_str.c_str());
+                    // Record Displayed Tokens To Log
+                    // Note: Generated tokens are created one by one hence this check
+                    if (llama2_embd.size() > 1) {
+                        // Incoming Requested Tokens
+                        input_tokens.push_back(id);
+                        input_ss << llama_token_to_piece(ctx, id, params.special);
+                    } else {
+                        // Outgoing Generated Tokens
+                        output_tokens.push_back(id);
+                        output_ss << token_str;
+                    }
+                }
+            }
+            // end of generation
+            if (!llama2_embd.empty() && llama_token_is_eog(model, llama2_embd.back()) && !(params.interactive)) {
+                LOG(" [end of text]\n");
+                break;
+            }
+        }
+    }
 
     LOG("\n\n");
     common_perf_print(ctx, smpl);
